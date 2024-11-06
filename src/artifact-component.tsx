@@ -1,378 +1,419 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, Loader2 } from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Slider } from '@/components/ui/slider';
 
-const MLTrainingInterface = () => {
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const streamRef = useRef(null);
-  const animationFrameRef = useRef(null);
+const EquilibriumCalculator = () => {
+  const R = 8.314; // Gas constant in J/mol·K
+  const deltaH = -50000; // J/mol
+  const [volume, setVolume] = useState(1.0);
+  const [temperature, setTemperature] = useState(300);
+  const [molsA, setMolsA] = useState(2);
+  const [molsB, setMolsB] = useState(0.25);
+  const [molsC, setMolsC] = useState(0.5);
+  const [molsD, setMolsD] = useState(2);
+  const [isEquilibrating, setIsEquilibrating] = useState(false);
+  const [debugInfo, setDebugInfo] = useState({});
+  const [debug, setDebug] = useState(false);
+  const [step, setStep] = useState(0);
+  const timeoutRef = useRef(null);
+
+  // Calculate K based on temperature
+  const K = Math.exp(-(deltaH/R) * (1/temperature - 1/300));
+
+  // Calculate concentrations
+  const concB = molsB / volume;
+  const concC = molsC / volume;
   
-  const [isModelReady, setIsModelReady] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('posenet');
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingProgress, setLoadingProgress] = useState(0);
-  const [isRecording, setIsRecording] = useState(false);
-  const [currentClass, setCurrentClass] = useState(1);
-  const [numClasses, setNumClasses] = useState(3);
-  const [isTrained, setIsTrained] = useState(false);
-  const [prediction, setPrediction] = useState(null);
-  const [status, setStatus] = useState('Choose a model to begin');
-  const [cameraError, setCameraError] = useState(null);
-  const [keypoints, setKeypoints] = useState([]);
+  // Calculate Q = [C]²/[B]
+  const Q = (concC * concC) / concB;
+
+  // Calculate volume of solids
+  const volumeA = molsA / 50; // L
+  const volumeD = molsD / 40; // L
   
-  const [trainingData, setTrainingData] = useState({
-    1: [], 2: [], 3: [], 4: [], 5: []
-  });
+  // Available solution volume
+  const Vsoln = volume - volumeA - volumeD;
 
-  // Mock keypoint data for each model type
-  const getMockKeypoints = () => {
-    switch (selectedModel) {
-      case 'posenet':
-        return [
-          { x: Math.random() * 640, y: Math.random() * 480, score: 0.9, part: "nose" },
-          { x: Math.random() * 640, y: Math.random() * 480, score: 0.8, part: "leftEye" },
-          { x: Math.random() * 640, y: Math.random() * 480, score: 0.8, part: "rightEye" },
-          { x: Math.random() * 640, y: Math.random() * 480, score: 0.7, part: "leftShoulder" },
-          { x: Math.random() * 640, y: Math.random() * 480, score: 0.7, part: "rightShoulder" }
-        ];
-      case 'handpose':
-        return Array(21).fill(0).map((_, i) => ({
-          x: Math.random() * 640,
-          y: Math.random() * 480,
-          score: 0.8,
-          part: `finger${Math.floor(i/4)}_joint${i%4}`
-        }));
-      case 'facemesh':
-        return Array(20).fill(0).map((_, i) => ({
-          x: Math.random() * 640,
-          y: Math.random() * 480,
-          score: 0.9,
-          part: `face${i}`
-        }));
-      default:
-        return [];
-    }
-  };
+  const addB = () => {
+    setMolsB(prev => prev + 0.2);
+  }
 
-  const drawKeypoints = () => {
-    const canvas = canvasRef.current;
-    const video = videoRef.current;
+  const addC = () => {
+    setMolsC(prev => prev + 0.2);
+  }
+
+  const removeB = () => {
+    setMolsB(prev => prev*0.5)
+  }
+
+  const removeC = () => {
+    setMolsC(prev => prev*0.5)
+  }
+
+  const performStep = () => {
+    // Fixed time step
+    const deltaTime = 0.1; // seconds
     
-    if (!canvas || !video) return;
+    // Rate constant
+    const k = 0.5;
     
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Calculate rates
+    const dBdt = k * (concC * concC - concB * K);
+    const dCdt = -2 * dBdt;
     
-    // Update mock keypoints
-    const points = getMockKeypoints();
-    setKeypoints(points);
+    // Calculate mole changes
+    const dA = 3 * dBdt * Vsoln * deltaTime;
+    const dB = dBdt * Vsoln * deltaTime;
+    const dC = dCdt * Vsoln * deltaTime;
+    const dD = -dBdt * Vsoln * deltaTime;
     
-    // Draw keypoints
-    points.forEach(point => {
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, 5, 0, 2 * Math.PI);
-      ctx.fillStyle = `rgba(255, 0, 0, ${point.score})`;
-      ctx.fill();
-      
-      // Draw labels for PoseNet main points
-      if (selectedModel === 'posenet' && ['nose', 'leftEye', 'rightEye'].includes(point.part)) {
-        ctx.fillStyle = 'white';
-        ctx.font = '12px Arial';
-        ctx.fillText(point.part, point.x + 8, point.y);
-      }
+    // Update debug info
+    setDebugInfo({
+      dBdt: dBdt.toExponential(3),
+      dCdt: dCdt.toExponential(3),
+      dA: dA.toExponential(3),
+      dB: dB.toExponential(3),
+      dC: dC.toExponential(3),
+      dD: dD.toExponential(3),
+      deltaTime: deltaTime.toFixed(3),
+      Vsoln: Vsoln.toFixed(3),
+      concB: concB.toFixed(3),
+      concC: concC.toFixed(3),
+      K: K.toExponential(3),
+      step: step
     });
-    
-    // Draw connections for handpose
-    if (selectedModel === 'handpose') {
-      for (let i = 0; i < points.length - 1; i++) {
-        if (i % 4 !== 3) { // Connect within finger
-          ctx.beginPath();
-          ctx.moveTo(points[i].x, points[i].y);
-          ctx.lineTo(points[i + 1].x, points[i + 1].y);
-          ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
-          ctx.stroke();
-        }
-      }
-    }
-    
-    animationFrameRef.current = requestAnimationFrame(drawKeypoints);
-  };
 
-  // Initialize webcam
-  const startWebcam = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          width: { ideal: 640 },
-          height: { ideal: 480 }
-        } 
-      });
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        streamRef.current = stream;
-        setStatus('Camera ready');
-        setCameraError(null);
-      }
-    } catch (err) {
-      console.error('Error accessing webcam:', err);
-      setCameraError(`Camera error: ${err.message}`);
-      setStatus('Camera access denied');
-    }
-  };
-
-  // Clean up webcam and animation frame
-  const cleanup = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
-    }
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
+    // Update moles
+    setMolsA(prev => prev + dA);
+    setMolsB(prev => prev + dB);
+    setMolsC(prev => prev + dC);
+    setMolsD(prev => prev + dD);
+    
+    setStep(prev => prev + 1);
   };
 
   useEffect(() => {
-    startWebcam();
-    return cleanup;
-  }, []);
-
-  useEffect(() => {
-    if (isModelReady && !isLoading) {
-      drawKeypoints();
+    if (isEquilibrating) {
+      // Check if we should continue
+      const currentQ = (concC * concC) / concB;
+      if (Math.abs(Math.log(currentQ/K)) > 1e-4 && step < 200) {
+        timeoutRef.current = setTimeout(performStep, 100); // 100ms delay between steps
+      } else {
+        setIsEquilibrating(false);
+        setStep(0);
+      }
     }
     return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
       }
     };
-  }, [isModelReady, isLoading, selectedModel]);
+  }, [isEquilibrating, step, concB, concC, K]);
 
-  const handleModelChange = (model) => {
-    setSelectedModel(model);
-    setIsModelReady(false);
-    setIsLoading(true);
-    setStatus(`Loading ${model}...`);
-    setLoadingProgress(0);
-    
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
+  const equilibrate = () => {
+    setIsEquilibrating(true);
+    setStep(0);
   };
 
-  const recordSample = () => {
-    setTrainingData(prev => ({
-      ...prev,
-      [currentClass]: [...prev[currentClass], 
-        Array(10).fill(0).map(() => Math.random())
-      ]
-    }));
-    setStatus(`Recorded sample for class ${currentClass}`);
-  };
-
-  const trainModel = () => {
-    setStatus('Training...');
-    setLoadingProgress(0);
-    setIsLoading(true);
-    
-    const totalSamples = Object.values(trainingData)
-      .reduce((sum, samples) => sum + samples.length, 0);
-    const trainingTime = Math.min(2000 + (totalSamples * 100), 5000);
-    
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 2;
-      if (progress <= 100) {
-        setLoadingProgress(progress);
-      }
-    }, trainingTime / 50);
-
-    setTimeout(() => {
-      setIsLoading(false);
-      setIsTrained(true);
-      setStatus('Model trained!');
-      clearInterval(interval);
-    }, trainingTime);
-  };
-
-  const runModel = () => {
-    const randomClass = Math.floor(Math.random() * numClasses) + 1;
-    setPrediction(randomClass);
-  };
+  // Log scale for number line
+  const logQ = Math.log10(Q);
+  const logK = Math.log10(K);
+  const logMin = -3;
+  const logMax = 3;
+  const qPos = ((logQ - logMin) / (logMax - logMin)) * 100;
+  const kPos = ((logK - logMin) / (logMax - logMin)) * 100;
 
   return (
-    <div className="w-full max-w-4xl space-y-4">
-      {/* Model Selection */}
-      <Card>
-        <CardHeader>
-          <CardTitle>ML Model Configuration</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Input Model:</label>
-            <Select 
-              value={selectedModel} 
-              onValueChange={handleModelChange}
-              disabled={isLoading}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="posenet">PoseNet (~3s)</SelectItem>
-                <SelectItem value="handpose">HandPose (~4s)</SelectItem>
-                <SelectItem value="facemesh">FaceMesh (~5s)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          
-          {isLoading && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="text-sm">{loadingProgress}%</span>
-              </div>
-              <div className="w-full bg-slate-200 rounded-full h-2">
-                <div 
-                  className="bg-blue-500 h-2 rounded-full transition-all duration-300" 
-                  style={{ width: `${loadingProgress}%` }}
-                />
-              </div>
-            </div>
-          )}
-          
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Number of Classes:</label>
-            <Slider 
-              value={[numClasses]}
-              min={2}
-              max={5}
-              step={1}
-              onValueChange={([value]) => setNumClasses(value)}
-              className="w-full"
-              disabled={isLoading}
+    <div className="w-full max-w-2xl mx-auto p-4 space-y-6">
+
+<div className="flex">
+    {/* Left column with sliders */}
+    <div className="flex-1 space-y-4">
+        <div>
+          <label className="block mb-2">
+            <input 
+              type="checkbox" 
+              checked={debug} 
+              onChange={(e) => setDebug(e.target.checked)} 
+              className="mr-2"
             />
-            <span className="text-sm">{numClasses} classes</span>
-          </div>
-        </CardContent>
-      </Card>
+            Enable Debug
+          </label>
+        </div>
+        <div>
+          <label className="block mb-2">
+            Volume: {volume.toFixed(2)} L
+          </label>
+          <input 
+            type="range" 
+            min={0.1} 
+            max={10} 
+            step={0.1} 
+            value={volume}
+            onChange={(e) => setVolume(Number(e.target.value))}
+            className="w-full"
+            disabled={isEquilibrating}
+          />
+        </div>
+        
+        <div>
+          <label className="block mb-2">
+            Temperature: {temperature.toFixed(1)} K
+          </label>
+          <input 
+            type="range" 
+            min={100} 
+            max={600} 
+            step={1} 
+            value={temperature}
+            onChange={(e) => setTemperature(Number(e.target.value))}
+            className="w-full"
+            disabled={isEquilibrating}
+          />
+        </div>
+</div>
+ {/* Volume visualization with solids */}
+<div className="ml-8 text-center">
+  <div 
+    className="mx-auto border-2 border-gray-400 rounded bg-blue-50 relative"
+    style={{
+      height: `${Math.min(volume * 40, 400)}px`,
+      width: '100px'
+    }}
+  >
+    <svg 
+      width="100%" 
+      height="100%" 
+      className="absolute bottom-0 left-0"
+    >
+      {/* Solid A (green) */}
+      <path 
+        d={`M 0,${Math.min(volume * 40, 400)} 
+            a ${Math.sqrt((volumeA * 3200) / Math.PI)},${Math.sqrt((volumeA * 3200) / Math.PI)} 0 0,1 ${100/2},0 
+            L 0,${Math.min(volume * 40, 400)} Z`}
+        fill="rgb(187 247 208)"  // light green
+      />
+      
+      {/* Solid D (gray) */}
+      <path 
+        d={`M ${100},${Math.min(volume * 40, 400)} 
+            a ${Math.sqrt((volumeD * 3200) / Math.PI)},${Math.sqrt((volumeD * 3200) / Math.PI)} 0 0,0 -${100/2},0 
+            L ${100},${Math.min(volume * 40, 400)} Z`}
+        fill="rgb(229 231 235)"  // light gray
+      />
+    </svg>
+  </div>
+  <div className="mt-2">Volume: {volume.toFixed(1)} L</div>
+</div>
+</div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Camera Preview</CardTitle>
-        </CardHeader>
-        <CardContent className="flex justify-center">
-          <div className="relative bg-slate-200 w-[640px] h-[480px] flex items-center justify-center overflow-hidden">
-            {cameraError ? (
-              <div className="text-center text-red-500">
-                <Camera className="w-12 h-12 mx-auto mb-2" />
-                {cameraError}
-              </div>
-            ) : (
-              <>
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="absolute inset-0 w-full h-full object-cover transform scale-x-[-1]"
-                />
-                <canvas
-                  ref={canvasRef}
-                  width={640}
-                  height={480}
-                  className="absolute inset-0 w-full h-full transform scale-x-[-1]"
-                />
-                {isLoading && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                    <Loader2 className="w-12 h-12 text-white animate-spin" />
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+<div className="space-x-2">
+      <button
+          onClick={addB}
+          disabled={isEquilibrating}
+          className={`px-4 py-2 rounded ${isEquilibrating 
+            ? 'bg-gray-400' 
+            : Math.abs(Math.log(Q/K)) < 1e-4
+              ? 'bg-green-500 hover:bg-green-600'
+              : 'bg-blue-500 hover:bg-blue-600'
+          } text-white`}
+        >
+          Add B(g)
+        </button>
 
-      {/* Training Interface */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Training Interface</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex gap-4">
-            <Select 
-              value={currentClass.toString()} 
-              onValueChange={(v) => setCurrentClass(parseInt(v))}
-              disabled={isLoading}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Array.from({length: numClasses}).map((_, i) => (
-                  <SelectItem key={i + 1} value={(i + 1).toString()}>
-                    Class {i + 1}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button 
-              onClick={recordSample}
-              disabled={!isModelReady || isLoading}
-              variant={isRecording ? "destructive" : "default"}
-            >
-              Record Sample
-            </Button>
-          </div>
+        <button
+          onClick={removeB}
+          disabled={isEquilibrating}
+          className={`px-4 py-2 rounded ${isEquilibrating 
+            ? 'bg-gray-400' 
+            : Math.abs(Math.log(Q/K)) < 1e-4
+              ? 'bg-green-500 hover:bg-green-600'
+              : 'bg-blue-500 hover:bg-blue-600'
+          } text-white`}
+          >Remove B(g)</button>
 
-          <div className="grid grid-cols-5 gap-2">
-            {Object.entries(trainingData).slice(0, numClasses).map(([classNum, samples]) => (
-              <div key={classNum} className="text-center">
-                <div className="font-medium">Class {classNum}</div>
-                <div className="text-sm text-slate-500">{samples.length} samples</div>
-              </div>
-            ))}
-          </div>
+          <button
+            onClick={addC}
+            disabled={isEquilibrating}
+            className={`px-4 py-2 rounded ${isEquilibrating 
+              ? 'bg-gray-400' 
+              : Math.abs(Math.log(Q/K)) < 1e-4
+                ? 'bg-green-500 hover:bg-green-600'
+                : 'bg-blue-500 hover:bg-blue-600'
+            } text-white`}
+          >
+            Add C(g)
+          </button>
 
-          <div className="flex gap-4">
-            <Button 
-              onClick={trainModel} 
-              disabled={!isModelReady || isLoading}
-            >
-              {isLoading ? (
-                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Training...</>
-              ) : (
-                'Train Model'
-              )}
-            </Button>
-            <Button 
-              onClick={runModel} 
-              disabled={!isTrained || isLoading}
-              variant="outline"
-            >
-              Run Model
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          <button
+            onClick={removeC}
+            disabled={isEquilibrating}
+            className={`px-4 py-2 rounded ${isEquilibrating 
+              ? 'bg-gray-400' 
+              : Math.abs(Math.log(Q/K)) < 1e-4
+                ? 'bg-green-500 hover:bg-green-600'
+                : 'bg-blue-500 hover:bg-blue-600'
+            } text-white`}
+          >
+            Remove C(g)
+          </button>
 
-      {/* Status and Results */}
-      <Alert>
-        <AlertDescription>
-          Status: {status}
-          {prediction && <div>Current Prediction: Class {prediction}</div>}
-        </AlertDescription>
-      </Alert>
+        <button 
+          onClick={equilibrate}
+          disabled={isEquilibrating}
+          className={`px-4 py-2 rounded ${isEquilibrating 
+            ? 'bg-gray-400' 
+            : Math.abs(Math.log(Q/K)) < 1e-4
+              ? 'bg-green-500 hover:bg-green-600'
+              : 'bg-blue-500 hover:bg-blue-600'
+          } text-white`}
+        >
+          {isEquilibrating 
+            ? `Equilibrating...` 
+            : Math.abs(Math.log(Q/K)) < 1e-4
+              ? 'At Equilibrium'
+              : 'Equilibrate System'
+          }
+        </button>
+
+        </div>
+
+
+      {/* Debug Information */}
+      {isEquilibrating && debug &&(
+        <div className="bg-gray-100 p-4 rounded text-sm font-mono">
+          <h3 className="font-bold mb-2">Debug Info (Step {step}):</h3>
+          <div className="grid grid-cols-2 gap-2">
+            <div>Rates (M/s):</div>
+            <div>
+              dB/dt: {debugInfo.dBdt}
+              <br />
+              dC/dt: {debugInfo.dCdt}
+            </div>
+            <div>Mole changes (mol):</div>
+            <div>
+              dA: {debugInfo.dA}
+              <br />
+              dB: {debugInfo.dB}
+              <br />
+              dC: {debugInfo.dC}
+              <br />
+              dD: {debugInfo.dD}
+            </div>
+            <div>Current state:</div>
+            <div>
+              [B]: {debugInfo.concB} M
+              <br />
+              [C]: {debugInfo.concC} M
+              <br />
+              K: {debugInfo.K}
+              <br />
+              Vsoln: {debugInfo.Vsoln} L
+              <br />
+              Δt: {debugInfo.deltaTime} s
+            </div>
+          </div>
+        </div>
+      )}
+
+{/* Q calculation display */}
+<div className="text-center mb-4" style={{paddingBottom: "16px"}}>
+  <span className="mr-4">Q = [C]²/[B] = ({concC.toFixed(3)})²/{concB.toFixed(3)} = {Q.toExponential(2)}</span>
+</div>
+
+      {/* Q and K number line */}
+      <div className="relative h-16 border-t-2 border-black mt-8">
+        {/* K marker */}
+        <div 
+          className="absolute w-1 h-4 bg-blue-500"
+          style={{ left: `${Math.min(Math.max(kPos, 0), 100)}%`, top: '-2px' ,
+          transform: 'translateX(-50%)' /* Added this */
+}}
+        />
+        <div 
+          className="absolute text-blue-500 font-bold"
+          style={{ left: `${Math.min(Math.max(kPos, 0), 100)}%`, top: '12px', transform: 'translateX(-50%)' }}
+        >
+          K={K.toExponential(2)}
+        </div>
+
+        {/* Q marker */}
+        <div 
+          className="absolute w-4 h-4 rounded-full bg-red-500"
+          style={{ 
+            left: `${Math.min(Math.max(qPos, 0), 100)}%`, 
+            top: '-18px', 
+            transform: 'translateX(-50%)'
+          }}
+        />
+        <div 
+          className="absolute text-red-500 font-bold"
+          style={{ 
+            left: `${Math.min(Math.max(qPos, 0), 100)}%`, 
+            top: '-36px', 
+            transform: 'translateX(-50%)'
+          }}
+        >
+          Q={Q.toExponential(2)}
+        </div>
+
+        {/* Scale labels */}
+        <div className="absolute left-0 top-4">10<sup>{logMin}</sup></div>
+        <div className="absolute right-0 top-4">10<sup>{logMax}</sup></div>
+      </div>
+
+      {/* Current values table */}
+      <table className="w-full mt-8 border-collapse border border-gray-300">
+  <thead>
+    <tr className="bg-gray-100">
+      <th className="border p-2"></th>
+      <th className="border p-2">3A(s)</th>
+      <th className="border p-2">+</th>
+      <th className="border p-2">B(g)</th>
+      <th className="border p-2 text-center">⇌</th>
+      <th className="border p-2">2C(g)</th>
+      <th className="border p-2">+</th>
+      <th className="border p-2">D(s)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td className="border p-2 font-medium">Moles</td>
+      <td className="border p-2">{molsA.toFixed(3)}</td>
+      <td className="border p-2"></td>
+      <td className="border p-2">{molsB.toFixed(3)}</td>
+      <td className="border p-2"></td>
+      <td className="border p-2">{molsC.toFixed(3)}</td>
+      <td className="border p-2"></td>
+      <td className="border p-2">{molsD.toFixed(3)}</td>
+    </tr>
+    <tr>
+      <td className="border p-2 font-medium">Concentration (M)</td>
+      <td className="border p-2">50.000</td>
+      <td className="border p-2"></td>
+      <td className="border p-2">{concB.toFixed(3)}</td>
+      <td className="border p-2"></td>
+      <td className="border p-2">{concC.toFixed(3)}</td>
+      <td className="border p-2"></td>
+      <td className="border p-2">40.000</td>
+    </tr>
+    {/* <tr>
+      <td className="border p-2 font-medium">Vol solid or solution (L)</td>
+      <td className="border p-2">{volumeA.toFixed(4)}</td>
+      <td className="border p-2"></td>
+      <td className="border p-2">{Vsoln.toFixed(3)}</td>
+      <td className="border p-2"></td>
+      <td className="border p-2">{Vsoln.toFixed(3)}</td>
+      <td className="border p-2"></td>
+      <td className="border p-2">{volumeD.toFixed(4)}</td>
+    </tr> */}
+  </tbody>
+</table>
+      <p>The reaction is exothermic.</p>
+      <div className="text-sm text-gray-600 mt-4">
+        <p>Reaction: 3A(s) + B(g) ⇌ 2C(g) + D(s)</p>
+        <p>ΔH = {deltaH} J/mol</p>
+      </div>
     </div>
   );
 };
 
-export default MLTrainingInterface;
+export default EquilibriumCalculator;
