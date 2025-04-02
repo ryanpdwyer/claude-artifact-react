@@ -48,6 +48,10 @@ const EquilibriumCalculator = () => {
     setMolsC(prev => prev*0.5)
   }
 
+  const addD = () => {
+    setMolsD(prev => prev + 0.2);
+  }
+
   const performStep = () => {
     // Fixed time step
     const deltaTime = 0.1; // seconds
@@ -204,8 +208,8 @@ const EquilibriumCalculator = () => {
   <div className="mt-2">Volume: {volume.toFixed(1)} L</div>
 </div>
 </div>
-
-<div className="space-x-2">
+<div className="grid grid-cols-3 gap-2 my-4">
+      {/* Column 1: B gas buttons */}
       <button
           onClick={addB}
           disabled={isEquilibrating}
@@ -219,62 +223,81 @@ const EquilibriumCalculator = () => {
           Add B(g)
         </button>
 
-        <button
-          onClick={removeB}
-          disabled={isEquilibrating}
-          className={`px-4 py-2 rounded ${isEquilibrating 
-            ? 'bg-gray-400' 
-            : Math.abs(Math.log(Q/K)) < 1e-4
-              ? 'bg-green-500 hover:bg-green-600'
-              : 'bg-blue-500 hover:bg-blue-600'
-          } text-white`}
-          >Remove B(g)</button>
 
-          <button
-            onClick={addC}
-            disabled={isEquilibrating}
-            className={`px-4 py-2 rounded ${isEquilibrating 
-              ? 'bg-gray-400' 
-              : Math.abs(Math.log(Q/K)) < 1e-4
-                ? 'bg-green-500 hover:bg-green-600'
-                : 'bg-blue-500 hover:bg-blue-600'
-            } text-white`}
-          >
-            Add C(g)
-          </button>
 
-          <button
-            onClick={removeC}
-            disabled={isEquilibrating}
-            className={`px-4 py-2 rounded ${isEquilibrating 
-              ? 'bg-gray-400' 
-              : Math.abs(Math.log(Q/K)) < 1e-4
-                ? 'bg-green-500 hover:bg-green-600'
-                : 'bg-blue-500 hover:bg-blue-600'
-            } text-white`}
-          >
-            Remove C(g)
-          </button>
+      <button
+        onClick={addC}
+        disabled={isEquilibrating}
+        className={`px-4 py-2 rounded ${isEquilibrating 
+          ? 'bg-gray-400' 
+          : Math.abs(Math.log(Q/K)) < 1e-4
+            ? 'bg-green-500 hover:bg-green-600'
+            : 'bg-blue-500 hover:bg-blue-600'
+        } text-white`}
+      >
+        Add C(g)
+      </button>
 
-        <button 
-          onClick={equilibrate}
-          disabled={isEquilibrating}
-          className={`px-4 py-2 rounded ${isEquilibrating 
-            ? 'bg-gray-400' 
-            : Math.abs(Math.log(Q/K)) < 1e-4
-              ? 'bg-green-500 hover:bg-green-600'
-              : 'bg-blue-500 hover:bg-blue-600'
-          } text-white`}
-        >
-          {isEquilibrating 
-            ? `Equilibrating...` 
-            : Math.abs(Math.log(Q/K)) < 1e-4
-              ? 'At Equilibrium'
-              : 'Equilibrate System'
-          }
-        </button>
 
-        </div>
+      {/* Column 3: D solid and equilibrate */}
+      <button
+        onClick={addD}
+        disabled={isEquilibrating}
+        className={`px-4 py-2 rounded ${isEquilibrating 
+          ? 'bg-gray-400' 
+          : Math.abs(Math.log(Q/K)) < 1e-4
+            ? 'bg-green-500 hover:bg-green-600'
+            : 'bg-blue-500 hover:bg-blue-600'
+        } text-white`}
+      >
+        Add D(s)
+      </button>
+
+      <button
+        onClick={removeB}
+        disabled={isEquilibrating}
+        className={`px-4 py-2 rounded ${isEquilibrating 
+          ? 'bg-gray-400' 
+          : Math.abs(Math.log(Q/K)) < 1e-4
+            ? 'bg-green-500 hover:bg-green-600'
+            : 'bg-blue-500 hover:bg-blue-600'
+        } text-white`}
+      >
+        Remove B(g)
+      </button>
+
+      <button
+        onClick={removeC}
+        disabled={isEquilibrating}
+        className={`px-4 py-2 rounded ${isEquilibrating 
+          ? 'bg-gray-400' 
+          : Math.abs(Math.log(Q/K)) < 1e-4
+            ? 'bg-green-500 hover:bg-green-600'
+            : 'bg-blue-500 hover:bg-blue-600'
+        } text-white`}
+      >
+        Remove C(g)
+      </button>
+
+
+      <button 
+        onClick={equilibrate}
+        disabled={isEquilibrating}
+        className={`px-4 py-2 rounded ${isEquilibrating 
+          ? 'bg-gray-400' 
+          : Math.abs(Math.log(Q/K)) < 1e-4
+            ? 'bg-green-500 hover:bg-green-600'
+            : 'bg-blue-500 hover:bg-blue-600'
+        } text-white`}
+      >
+        {isEquilibrating 
+          ? `Equilibrating...` 
+          : Math.abs(Math.log(Q/K)) < 1e-4
+            ? 'At Equilibrium'
+            : 'Equilibrate System'
+        }
+      </button>
+</div>
 
 
       {/* Debug Information */}
