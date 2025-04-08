@@ -1,4 +1,21 @@
+import { format } from 'path';
 import React, { useState, useEffect, useRef } from 'react';
+
+// Add this utility function near the top of your file
+const formatNumber = (num) => {
+  if (num === 0) return "0";
+  
+  const absNum = Math.abs(num);
+  
+  // Check if number is between 0.001 and 1000
+  if (absNum >= 0.001 && absNum < 1000) {
+    // Format with 2 significant figures in floating point
+    return parseFloat(num.toPrecision(2)).toString();
+  } else {
+    // Use scientific notation for very small or very large numbers
+    return num.toExponential(2);
+  }
+};
 
 const EquilibriumCalculator = () => {
   const R = 8.314; // Gas constant in J/mol·K
@@ -338,12 +355,17 @@ const EquilibriumCalculator = () => {
       )}
 
 {/* Q calculation display */}
-<div className="text-center mb-4" style={{paddingBottom: "16px"}}>
-  <span className="mr-4">Q = [C]²/[B] = ({concC.toFixed(3)})²/{concB.toFixed(3)} = {Q.toExponential(2)}</span>
+<div className="text-center mb-2">
+  <span className="mr-4">Q = [C]²/[B] = ({formatNumber(concC)})²/{formatNumber(concB)} = {formatNumber(Q)}</span>
 </div>
-
+{/* Centered reaction equation */}
+<div className="text-center text-xl font-medium mb-2">
+  3A(s) + B(g) ⇌ 2C(g) + D(s)
+</div>
+<br/>
       {/* Q and K number line */}
       <div className="relative h-16 border-t-2 border-black mt-8">
+        <br/>
         {/* K marker */}
         <div 
           className="absolute w-1 h-4 bg-blue-500"
@@ -355,7 +377,7 @@ const EquilibriumCalculator = () => {
           className="absolute text-blue-500 font-bold"
           style={{ left: `${Math.min(Math.max(kPos, 0), 100)}%`, top: '12px', transform: 'translateX(-50%)' }}
         >
-          K={K.toExponential(2)}
+          K={formatNumber(K)}
         </div>
 
         {/* Q marker */}
@@ -375,7 +397,7 @@ const EquilibriumCalculator = () => {
             transform: 'translateX(-50%)'
           }}
         >
-          Q={Q.toExponential(2)}
+          Q={formatNumber(Q)}
         </div>
 
         {/* Scale labels */}
