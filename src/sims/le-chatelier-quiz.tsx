@@ -65,19 +65,27 @@ type Stress =
   | { kind: 'volume'; dir: 'up' | 'down' }
   | { kind: 'water' }
   | { kind: 'solid'; key: string }
+  | { kind: 'inert'; label: React.ReactNode }
+  | { kind: 'catalyst'; label: React.ReactNode }
 
 type Shift = 'left' | 'right' | 'none'
 type Change = 'I' | 'D' | 'U'
+
+// A single quantity the question asks about (a species amount, or K).
+// Multiple askeds per card let us show both "grams of NO" and "K" side by side.
+type AskedItem = {
+  node: React.ReactNode
+  key: string // matches a species key, or 'K'
+  change: Change
+}
 
 type Question = {
   letter: string
   bonus?: boolean
   stressLabel: React.ReactNode
-  asked: React.ReactNode
-  askedKey: string // matches a species key, or 'K'
+  asked: AskedItem[]
   stress: Stress
   shift: Shift
-  change: Change
   caption: React.ReactNode
 }
 
@@ -168,20 +176,23 @@ const ReactionVisual: React.FC<{
     })
   }
 
-  // Response arrow on the asked species only (skip the stressed species —
+  // Response arrows on each asked species (skip the stressed species —
   // its response doesn't fully cancel the stress). Solids ARE allowed to
   // get response arrows because their moles do change.
   const responseArrows: Record<string, 'up' | 'down'> = {}
-  const askedSpeciesIsStressed = stressArrows[q.askedKey] !== undefined
-  if (!askedSpeciesIsStressed && q.shift !== 'none') {
-    const isReactant = rxn.reactants.some(s => s.key === q.askedKey)
-    const isProduct = rxn.products.some(s => s.key === q.askedKey)
-    if (isReactant) {
-      responseArrows[q.askedKey] = q.shift === 'left' ? 'up' : 'down'
-    } else if (isProduct) {
-      responseArrows[q.askedKey] = q.shift === 'right' ? 'up' : 'down'
+  if (q.shift !== 'none') {
+    for (const item of q.asked) {
+      if (stressArrows[item.key] !== undefined) continue
+      const isReactant = rxn.reactants.some(s => s.key === item.key)
+      const isProduct = rxn.products.some(s => s.key === item.key)
+      if (isReactant) {
+        responseArrows[item.key] = q.shift === 'left' ? 'up' : 'down'
+      } else if (isProduct) {
+        responseArrows[item.key] = q.shift === 'right' ? 'up' : 'down'
+      }
     }
   }
+  const askedKeys = new Set(q.asked.map(a => a.key))
 
   const heatStress = q.stress.kind === 'heat' ? q.stress : null
 
@@ -193,7 +204,7 @@ const ReactionVisual: React.FC<{
           stressDir={stressArrows[sp.key]}
           stressCount={stressCounts[sp.key]}
           responseDir={responseArrows[sp.key]}
-          isAsked={q.askedKey === sp.key && stage >= 3}
+          isAsked={askedKeys.has(sp.key) && stage >= 3}
           stage={stage}
         />
         {i < species.length - 1 && <span className="text-xl mx-0.5">+</span>}
@@ -417,6 +428,66 @@ const ChangeBadge: React.FC<{ change: Change }> = ({ change }) => {
   return <span className={`px-2 py-0.5 rounded text-xs font-semibold ${m.cls}`}>{m.label}</span>
 }
 
+// ---------- Pre-reveal multiple choice ----------
+
+const MC_CHOICES: { value: Change; label: string; symbol: string }[] = [
+  { value: 'I', label: 'Increase', symbol: '↑' },
+  { value: 'D', label: 'Decrease', symbol: '↓' },
+  { value: 'U', label: 'Unchanged', symbol: '=' },
+]
+
+const MCRow: React.FC<{
+  item: AskedItem
+  pick?: Change
+  onPick: (c: Change) => void
+  revealed: boolean
+}> = ({ item, pick, onPick, revealed }) => {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-gray-700">{item.node}:</span>
+      <div className="flex gap-1" role="radiogroup">
+        {MC_CHOICES.map(c => {
+          const isPicked = pick === c.value
+          const isAnswer = item.change === c.value
+          const base = 'px-2 py-0.5 rounded border text-xs transition-colors'
+          let cls = base + ' '
+          if (revealed) {
+            if (isAnswer) {
+              cls += 'bg-emerald-100 text-emerald-900 border-emerald-500 font-semibold'
+            } else if (isPicked) {
+              cls += 'bg-rose-100 text-rose-900 border-rose-500 line-through'
+            } else {
+              cls += 'bg-white text-gray-400 border-gray-200'
+            }
+          } else if (isPicked) {
+            cls += 'bg-blue-100 text-blue-900 border-blue-500'
+          } else {
+            cls += 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
+          }
+          return (
+            <button
+              key={c.value}
+              type="button"
+              role="radio"
+              aria-checked={isPicked}
+              aria-label={c.label}
+              disabled={revealed}
+              onClick={e => {
+                e.stopPropagation()
+                onPick(c.value)
+              }}
+              className={cls}
+            >
+              <span className="mr-0.5">{c.symbol}</span>
+              {c.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ---------- Quiz card ----------
 
 const QuizCard: React.FC<{
@@ -424,7 +495,9 @@ const QuizCard: React.FC<{
   rxn: RxnDef
   isOpen: boolean
   onToggle: () => void
-}> = ({ q, rxn, isOpen, onToggle }) => {
+  picks: Record<string, Change>
+  onPick: (askedKey: string, change: Change) => void
+}> = ({ q, rxn, isOpen, onToggle, picks, onPick }) => {
   // Stage advances 1 → 2 → 3 with delays so the explanation animates in.
   const [stage, setStage] = useState(0)
   useEffect(() => {
@@ -446,12 +519,8 @@ const QuizCard: React.FC<{
 
   return (
     <div className="border border-gray-200 rounded">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full text-left p-4 hover:bg-gray-50 flex items-start justify-between gap-3"
-      >
-        <div className="flex-1">
+      <div className="p-4 flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
           <div className="font-medium">
             <span className="text-gray-500 mr-1">{q.letter})</span>
             {q.bonus && (
@@ -462,13 +531,35 @@ const QuizCard: React.FC<{
             {q.stressLabel}
           </div>
           <div className="text-sm text-gray-600 mt-1">
-            What happens to <strong>{q.asked}</strong>?
+            What happens to{' '}
+            {q.asked.map((a, i) => (
+              <Fragment key={a.key}>
+                {i > 0 && (i === q.asked.length - 1 ? ' and ' : ', ')}
+                <strong>{a.node}</strong>
+              </Fragment>
+            ))}
+            ?
+          </div>
+          <div className="mt-2 space-y-1">
+            {q.asked.map(item => (
+              <MCRow
+                key={item.key}
+                item={item}
+                pick={picks[item.key]}
+                onPick={c => onPick(item.key, c)}
+                revealed={isOpen}
+              />
+            ))}
           </div>
         </div>
-        <span className="text-xs text-blue-600 shrink-0 mt-1">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="text-xs text-blue-600 hover:underline shrink-0 mt-1 px-2 py-1 rounded hover:bg-blue-50"
+        >
           {isOpen ? 'Hide' : 'Reveal'}
-        </span>
-      </button>
+        </button>
+      </div>
       {isOpen && (
         <div className="px-4 pb-4 pt-3 border-t border-gray-200 space-y-3">
           <div className="bg-gray-50 rounded p-3">
@@ -498,15 +589,33 @@ const QuizCard: React.FC<{
                 </div>
               )
             })()}
+            {q.stress.kind === 'inert' && stage >= 1 && (
+              <div className="text-center mb-2">
+                <span className="px-2 py-0.5 rounded bg-rose-50 border border-rose-300 text-rose-900 font-semibold text-sm">
+                  {q.stress.label} — inert, constant V → partial pressures unchanged
+                </span>
+              </div>
+            )}
+            {q.stress.kind === 'catalyst' && stage >= 1 && (
+              <div className="text-center mb-2">
+                <span className="px-2 py-0.5 rounded bg-rose-50 border border-rose-300 text-rose-900 font-semibold text-sm">
+                  {q.stress.label} — forward and reverse rates both ↑ equally
+                </span>
+              </div>
+            )}
             <ReactionVisual rxn={rxn} q={q} stage={stage} />
           </div>
           <MiniNumberLine pos={linePos} stage={stage} />
-          <div className="flex flex-wrap items-center justify-center gap-2">
+          <div className="flex flex-col items-center gap-2">
             <ShiftBadge dir={q.shift} />
-            <span className="text-sm text-gray-600">
-              {q.asked} →
-            </span>
-            <ChangeBadge change={q.change} />
+            <div className="flex flex-col items-center gap-1">
+              {q.asked.map(item => (
+                <div key={item.key} className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600">{item.node} →</span>
+                  <ChangeBadge change={item.change} />
+                </div>
+              ))}
+            </div>
           </div>
           <p className="text-xs text-gray-600 text-center">{q.caption}</p>
         </div>
@@ -525,6 +634,12 @@ const ReactionQuiz: React.FC<{
   questions: Question[]
 }> = ({ title, rxn, reactionNode, thermal, questions }) => {
   const [open, setOpen] = useState<Record<string, boolean>>({})
+  const [picks, setPicks] = useState<Record<string, Record<string, Change>>>({})
+  const setPick = (letter: string, askedKey: string, change: Change) =>
+    setPicks(p => ({
+      ...p,
+      [letter]: { ...(p[letter] || {}), [askedKey]: change },
+    }))
   return (
     <div className="w-full max-w-3xl mx-auto p-4 space-y-4">
       <h1 className="text-xl font-semibold">{title}</h1>
@@ -545,6 +660,8 @@ const ReactionQuiz: React.FC<{
             rxn={rxn}
             isOpen={!!open[q.letter]}
             onToggle={() => setOpen(o => ({ ...o, [q.letter]: !o[q.letter] }))}
+            picks={picks[q.letter] || {}}
+            onPick={(askedKey, change) => setPick(q.letter, askedKey, change)}
           />
         ))}
       </div>
@@ -564,52 +681,42 @@ const questions1: Question[] = [
   {
     letter: 'a',
     stressLabel: <>Pb<sup>2+</sup> is added</>,
-    asked: 'K',
-    askedKey: 'K',
+    asked: [{ node: 'K', key: 'K', change: 'U' }],
     stress: { kind: 'species', key: 'Pb2+', dir: 'up' },
     shift: 'left',
-    change: 'U',
     caption: 'K only depends on temperature — adding a product changes Q, not K.',
   },
   {
     letter: 'b',
     stressLabel: 'PbS(s) is added',
-    asked: <>grams of H<sup>+</sup></>,
-    askedKey: 'H+',
+    asked: [{ node: <>grams of H<sup>+</sup></>, key: 'H+', change: 'U' }],
     stress: { kind: 'solid', key: 'PbS' },
     shift: 'none',
-    change: 'U',
     caption: "Pure solids don't appear in the K expression, so adding more doesn't disturb the equilibrium.",
   },
   {
     letter: 'c',
     stressLabel: 'Temperature is decreased to 5 °C',
-    asked: 'K',
-    askedKey: 'K',
+    asked: [{ node: 'K', key: 'K', change: 'D' }],
     stress: { kind: 'heat', side: 'left', dir: 'down' },
     shift: 'left',
-    change: 'D',
     caption: 'Endothermic: think of heat as a reactant. Removing heat (cooling) shifts the reaction left → K decreases.',
   },
   {
     letter: 'd',
     stressLabel: 'Pressure is increased by decreasing the volume',
-    asked: <>grams of Pb<sup>2+</sup></>,
-    askedKey: 'Pb2+',
+    asked: [{ node: <>grams of Pb<sup>2+</sup></>, key: 'Pb2+', change: 'D' }],
     stress: { kind: 'volume', dir: 'down' },
     shift: 'left',
-    change: 'D',
     caption: 'Right side has 1 mol of gas, left side has 0. Higher pressure favors fewer gas moles → shift left.',
   },
   {
     letter: 'e',
     bonus: true,
     stressLabel: 'Water is added',
-    asked: 'moles of PbS',
-    askedKey: 'PbS',
+    asked: [{ node: 'moles of PbS', key: 'PbS', change: 'I' }],
     stress: { kind: 'water' },
     shift: 'left',
-    change: 'I',
     caption: 'Diluting drops [H⁺]² faster than [Pb²⁺] → Q rises above K → shift left → more PbS forms.',
   },
 ]
@@ -637,52 +744,42 @@ const questions2: Question[] = [
   {
     letter: 'a',
     stressLabel: 'Ca(OH)₂(s) is added',
-    asked: 'K',
-    askedKey: 'K',
+    asked: [{ node: 'K', key: 'K', change: 'U' }],
     stress: { kind: 'solid', key: 'CaOH2' },
     shift: 'none',
-    change: 'U',
     caption: "Pure solids don't appear in K, so adding more doesn't change Q. K depends only on temperature.",
   },
   {
     letter: 'b',
     stressLabel: <>Ca<sup>2+</sup> is removed</>,
-    asked: <>grams of HCO<sub>3</sub><sup>−</sup></>,
-    askedKey: 'HCO3-',
+    asked: [{ node: <>grams of HCO<sub>3</sub><sup>−</sup></>, key: 'HCO3-', change: 'I' }],
     stress: { kind: 'species', key: 'Ca2+', dir: 'down' },
     shift: 'right',
-    change: 'I',
     caption: 'Removing a product drops Q below K → shift right → more HCO₃⁻ is produced along with the replacement Ca²⁺.',
   },
   {
     letter: 'c',
     stressLabel: 'Temperature is decreased to 5 °C',
-    asked: 'K',
-    askedKey: 'K',
+    asked: [{ node: 'K', key: 'K', change: 'I' }],
     stress: { kind: 'heat', side: 'right', dir: 'down' },
     shift: 'right',
-    change: 'I',
     caption: 'Exothermic: think of heat as a product. Removing heat shifts the reaction right → K increases.',
   },
   {
     letter: 'd',
     stressLabel: 'Pressure is increased by decreasing the volume',
-    asked: <>mol Ca(OH)<sub>2</sub></>,
-    askedKey: 'CaOH2',
+    asked: [{ node: <>mol Ca(OH)<sub>2</sub></>, key: 'CaOH2', change: 'D' }],
     stress: { kind: 'volume', dir: 'down' },
     shift: 'right',
-    change: 'D',
     caption: 'Left side has 2 mol of gas, right has 0. Higher pressure favors fewer gas moles → shift right → Ca(OH)₂ is consumed.',
   },
   {
     letter: 'e',
     bonus: true,
     stressLabel: 'Water is added',
-    asked: <>mol CO<sub>2</sub></>,
-    askedKey: 'CO2',
+    asked: [{ node: <>mol CO<sub>2</sub></>, key: 'CO2', change: 'D' }],
     stress: { kind: 'water' },
     shift: 'right',
-    change: 'D',
     caption: 'Diluting lowers [Ca²⁺] and [HCO₃⁻]² but not [CO₂] → Q drops below K → shift right → CO₂ is consumed.',
   },
 ]
@@ -694,5 +791,103 @@ export const Caoh2Quiz: React.FC = () => (
     reactionNode={reaction2Node}
     thermal="exothermic"
     questions={questions2}
+  />
+)
+
+// ---------- Reaction 3: N₂ + O₂ ⇌ 2 NO, endothermic ----------
+
+const RXN_N2O2: RxnDef = {
+  // K for N₂ + O₂ ⇌ 2 NO at room T is around 10⁻³⁰ — overwhelmingly
+  // reactant-favored (which is why the atmosphere doesn't combust itself).
+  Ksize: 'small',
+  reactants: [
+    { key: 'N2', coef: 1, node: <>N<sub>2</sub></>, state: 'g' },
+    { key: 'O2', coef: 1, node: <>O<sub>2</sub></>, state: 'g' },
+  ],
+  products: [{ key: 'NO', coef: 2, node: 'NO', state: 'g' }],
+}
+
+const reaction3Node = (
+  <>
+    N<sub>2</sub>(g) + O<sub>2</sub>(g) ⇌ 2 NO(g)
+  </>
+)
+
+const questions3: Question[] = [
+  {
+    letter: 'a',
+    stressLabel: <>N<sub>2</sub> is added</>,
+    asked: [
+      { node: 'grams of NO', key: 'NO', change: 'I' },
+      { node: 'K', key: 'K', change: 'U' },
+    ],
+    stress: { kind: 'species', key: 'N2', dir: 'up' },
+    shift: 'right',
+    caption: 'Adding a reactant drops Q below K → shift right → more NO forms. K only depends on T.',
+  },
+  {
+    letter: 'b',
+    stressLabel: 'Temperature decreases',
+    asked: [
+      { node: 'grams of NO', key: 'NO', change: 'D' },
+      { node: 'K', key: 'K', change: 'D' },
+    ],
+    stress: { kind: 'heat', side: 'left', dir: 'down' },
+    shift: 'left',
+    caption: 'Endothermic: heat acts as a reactant. Cooling removes heat → shift left → less NO, and K itself decreases.',
+  },
+  {
+    letter: 'c',
+    stressLabel: '10 atm of Ar is added',
+    asked: [
+      { node: 'grams of NO', key: 'NO', change: 'U' },
+      { node: 'K', key: 'K', change: 'U' },
+    ],
+    stress: { kind: 'inert', label: <>+ 10 atm Ar</> },
+    shift: 'none',
+    caption: 'Ar is inert. At constant V the partial pressures of N₂, O₂, NO are unchanged → Q = K, no shift.',
+  },
+  {
+    letter: 'd',
+    stressLabel: 'Volume is doubled',
+    asked: [
+      { node: 'grams of NO', key: 'NO', change: 'U' },
+      { node: 'K', key: 'K', change: 'U' },
+    ],
+    stress: { kind: 'volume', dir: 'up' },
+    shift: 'none',
+    caption: 'Δn_gas = 0 (2 mol ⇌ 2 mol). Every [gas] drops by the same factor, so Q is unchanged → no shift.',
+  },
+  {
+    letter: 'e',
+    stressLabel: 'A platinum catalyst is added',
+    asked: [
+      { node: 'grams of NO', key: 'NO', change: 'U' },
+      { node: 'K', key: 'K', change: 'U' },
+    ],
+    stress: { kind: 'catalyst', label: <>+ Pt catalyst</> },
+    shift: 'none',
+    caption: 'A catalyst speeds up the forward and reverse reactions equally — equilibrium is reached faster, not shifted.',
+  },
+  {
+    letter: 'f',
+    stressLabel: <>O<sub>2</sub> is removed</>,
+    asked: [
+      { node: 'grams of NO', key: 'NO', change: 'D' },
+      { node: 'K', key: 'K', change: 'U' },
+    ],
+    stress: { kind: 'species', key: 'O2', dir: 'down' },
+    shift: 'left',
+    caption: 'Removing a reactant pushes Q above K → shift left → NO is consumed. K only depends on T.',
+  },
+]
+
+export const N2O2Quiz: React.FC = () => (
+  <ReactionQuiz
+    title="Le Chatelier — endothermic N₂ + O₂ / NO"
+    rxn={RXN_N2O2}
+    reactionNode={reaction3Node}
+    thermal="endothermic"
+    questions={questions3}
   />
 )

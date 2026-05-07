@@ -2,7 +2,7 @@ import './App.css'
 import { useEffect, useState } from 'react'
 import OriginalEquilibrium from './artifact-component'
 import EquilibriumV2 from './sims/equilibrium-v2'
-import { PbsQuiz, Caoh2Quiz } from './sims/le-chatelier-quiz'
+import { PbsQuiz, Caoh2Quiz, N2O2Quiz } from './sims/le-chatelier-quiz'
 
 // Minimal client-side router. No deps. Vite's dev server already
 // falls back to index.html for unknown paths, so /v2 just works.
@@ -21,6 +21,7 @@ const ROUTES: { path: string; label: string; render: () => JSX.Element }[] = [
   { path: '/v2', label: 'v2 (improved)', render: () => <EquilibriumV2 /> },
   { path: '/q1', label: 'Q1: PbS / H₂S', render: () => <PbsQuiz /> },
   { path: '/q2', label: 'Q2: CO₂ / Ca(OH)₂', render: () => <Caoh2Quiz /> },
+  { path: '/q3', label: 'Q3: N₂ + O₂ / NO', render: () => <N2O2Quiz /> },
 ]
 
 function App() {
